@@ -18,32 +18,76 @@ const CastingPage = () => {
     location: '',
     date: '',
     image: null,
-    imagePreview: null
+    imagePreview: null,
+    images: []
   });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   const fetchTickets = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    
     try {
+      // Get user ID - handle both id and _id (MongoDB returns _id, but login/register return id)
+      const userId = user.id || user._id;
+      if (!userId) {
+        console.error('User ID not found in user object:', user);
+        setLoading(false);
+        return;
+      }
+      
+      const userIdStr = String(userId);
+      
       const response = await axios.get('http://localhost:5001/api/casting?status=all');
+      
+      // Filter tickets created by this user
       const myTickets = response.data
-        .filter(ticket => ticket.createdBy._id === user.id || ticket.createdBy === user.id)
+        .filter(ticket => {
+          if (!ticket.createdBy) {
+            return false;
+          }
+          
+          // Handle populated createdBy (object with _id) from backend
+          let creatorId = null;
+          if (ticket.createdBy && typeof ticket.createdBy === 'object' && ticket.createdBy._id) {
+            // Populated object: { _id: ObjectId(...), name: ..., email: ... }
+            creatorId = String(ticket.createdBy._id);
+          } else if (typeof ticket.createdBy === 'string') {
+            // Just the ID string
+            creatorId = ticket.createdBy;
+          } else if (ticket.createdBy && ticket.createdBy.toString) {
+            // ObjectId or similar
+            creatorId = String(ticket.createdBy);
+          } else {
+            return false;
+          }
+          
+          // Compare as strings
+          return creatorId === userIdStr;
+        })
         .map(ticket => ({
           ...ticket,
           // Ensure registeredUsers is populated or at least an array
           registeredUsers: ticket.registeredUsers || []
         }));
+      
       setTickets(myTickets);
     } catch (error) {
       console.error('Error fetching tickets:', error);
+      alert('Failed to fetch auditions. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [user.id]);
+  }, [user]);
 
   useEffect(() => {
-    if (user) {
+    if (user && (user.id || user._id)) {
       fetchTickets();
+    } else if (!user) {
+      setLoading(false);
     }
   }, [fetchTickets, user]);
 
@@ -79,18 +123,30 @@ const CastingPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5001/api/casting', formData);
-      alert('Ticket created successfully! It will be pending admin approval.');
+      // Prepare data for submission - convert single image to images array if needed
+      const submitData = {
+        title: formData.title,
+        description: formData.description,
+        category: formData.category,
+        location: formData.location,
+        date: formData.date,
+        images: formData.image ? [formData.image] : formData.images || []
+      };
+      
+      await axios.post('http://localhost:5001/api/casting', submitData);
+      alert('Audition created successfully! It will be pending admin approval.');
       setShowForm(false);
-      setFormData({ title: '', description: '', category: '', location: '', date: '', image: null, imagePreview: null });
+      setFormData({ title: '', description: '', category: '', location: '', date: '', image: null, imagePreview: null, images: [] });
+      setImageInputType('url');
       fetchTickets();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to create ticket');
+      console.error('Error creating audition:', error);
+      alert(error.response?.data?.message || 'Failed to create audition');
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this ticket?')) {
+    if (window.confirm('Are you sure you want to delete this audition?')) {
       try {
         await axios.delete(`http://localhost:5001/api/casting/${id}`);
         fetchTickets();
@@ -112,17 +168,19 @@ const CastingPage = () => {
     setLoadingRegistrations(true);
     try {
       const response = await axios.get(`http://localhost:5001/api/casting/${ticketId}/registrations`);
-      setRegistrations(response.data.registeredUsers || []);
+      // Backend returns array directly
+      setRegistrations(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to fetch registrations');
       setShowRegistrations(null);
+      setRegistrations([]);
     } finally {
       setLoadingRegistrations(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
@@ -150,18 +208,18 @@ const CastingPage = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">My Casting Tickets</h1>
+          <h1 className="text-4xl font-bold text-gray-900">My Auditions</h1>
           <button
             onClick={() => setShowForm(!showForm)}
             className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            {showForm ? 'Cancel' : 'Create New Ticket'}
+            {showForm ? 'Cancel' : 'Create New Audition'}
           </button>
         </div>
 
         {showForm && (
           <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 className="text-2xl font-semibold mb-4">Create New Casting Ticket</h2>
+            <h2 className="text-2xl font-semibold mb-4">Create New Audition</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Title</label>
@@ -185,14 +243,17 @@ const CastingPage = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Category</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700">Category *</label>
+                  <select
                     required
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  />
+                  >
+                    <option value="">Select Category</option>
+                    <option value="cinema">Cinema</option>
+                    <option value="serial">Serial</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Location</label>
@@ -289,24 +350,38 @@ const CastingPage = () => {
           </div>
         ) : tickets.length === 0 ? (
           <div className="text-center py-12">
-            <div className="text-xl text-gray-600">No tickets created yet</div>
+            <div className="text-xl text-gray-600">No auditions created yet</div>
+            <div className="text-sm text-gray-500 mt-2">Click "Create New Audition" to get started</div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {tickets.map((ticket) => (
-              <div key={ticket._id} className="bg-white rounded-lg shadow-md p-6">
-                {ticket.image && (
+              <div key={ticket._id} className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                {/* Display first image from images array or single image */}
+                {(ticket.images && ticket.images.length > 0) ? (
+                  <img
+                    src={ticket.images[0]}
+                    alt={ticket.title}
+                    className="w-full h-48 object-cover rounded mb-4"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                ) : ticket.image ? (
                   <img
                     src={ticket.image}
                     alt={ticket.title}
                     className="w-full h-48 object-cover rounded mb-4"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
                   />
-                )}
+                ) : null}
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">{ticket.title}</h2>
                 <p className="text-gray-600 mb-4">{ticket.description}</p>
                 <div className="space-y-2 mb-4">
                   <div className="text-sm text-gray-500">
-                    <span className="font-medium">Category:</span> {ticket.category}
+                    <span className="font-medium">Category:</span> <span className="capitalize">{ticket.category}</span>
                   </div>
                   <div className="text-sm text-gray-500">
                     <span className="font-medium">Location:</span> {ticket.location}
@@ -314,29 +389,33 @@ const CastingPage = () => {
                   <div className="text-sm text-gray-500">
                     <span className="font-medium">Date:</span> {new Date(ticket.date).toLocaleDateString()}
                   </div>
-                  <div className="text-sm text-gray-500">
-                    <span className="font-medium">Registered:</span> {ticket.registeredUsers?.length || 0}
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-gray-500">
+                      <span className="font-medium">Registered:</span> {ticket.registeredUsers?.length || 0}
+                    </div>
+                    <div className="text-sm">
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        ticket.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        ticket.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {ticket.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-sm">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      ticket.status === 'approved' ? 'bg-green-100 text-green-800' :
-                      ticket.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {ticket.status}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-2">
                   <button
                     onClick={() => handleViewRegistrations(ticket._id)}
-                    className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    className="w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                   >
                     View Registrations ({ticket.registeredUsers?.length || 0})
                   </button>
+                </div>
+                <div className="space-y-2">
                   {showRegistrations === ticket._id && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <h3 className="font-semibold text-gray-900 mb-3">Registered Users</h3>
+                      <h3 className="font-semibold text-gray-900 mb-3">
+                        Registered Users ({registrations.length})
+                      </h3>
                       {loadingRegistrations ? (
                         <div className="text-center py-4">
                           <div className="text-gray-600">Loading registrations...</div>
@@ -346,43 +425,134 @@ const CastingPage = () => {
                           No users registered yet
                         </div>
                       ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-4">
                           {registrations.map((registeredUser, index) => (
                             <div
                               key={registeredUser._id || index}
-                              className="bg-white p-3 rounded border border-gray-200"
+                              className="bg-white p-4 rounded border border-gray-200"
                             >
                               <div className="flex justify-between items-start">
-                                <div>
-                                  <div className="font-medium text-gray-900">
-                                    {registeredUser.name}
+                                <div className="flex items-start gap-3">
+                                  {(() => {
+                                    // Get profile photo from nested user object or direct
+                                    const profilePhoto = registeredUser.user?.profilePhoto || registeredUser.profilePhoto;
+                                    const userName = registeredUser.user?.name || registeredUser.name || 'User';
+                                    
+                                    // Show profile photo if available, otherwise show initial
+                                    if (profilePhoto && profilePhoto.trim() !== '' && profilePhoto !== 'null') {
+                                      return (
+                                        <img
+                                          src={profilePhoto}
+                                          alt={`${userName}'s profile`}
+                                          className="w-16 h-16 rounded-full object-cover border-2 border-blue-300 shadow-md"
+                                          onError={(e) => {
+                                            // On error, replace with fallback avatar
+                                            e.target.style.display = 'none';
+                                            const fallback = e.target.nextElementSibling;
+                                            if (fallback) {
+                                              fallback.style.display = 'flex';
+                                            }
+                                          }}
+                                        />
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                  <div 
+                                    className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center border-2 border-gray-300 shadow-sm"
+                                    style={{ 
+                                      display: (registeredUser.user?.profilePhoto || registeredUser.profilePhoto) && 
+                                               (registeredUser.user?.profilePhoto || registeredUser.profilePhoto).trim() !== '' &&
+                                               (registeredUser.user?.profilePhoto || registeredUser.profilePhoto) !== 'null' 
+                                        ? 'none' : 'flex' 
+                                    }}
+                                  >
+                                    <span className="text-gray-600 text-lg font-semibold">
+                                      {(registeredUser.user?.name || registeredUser.name)?.charAt(0)?.toUpperCase() || 'U'}
+                                    </span>
                                   </div>
-                                  <div className="text-sm text-gray-500">
-                                    {registeredUser.email}
+                                  <div>
+                                    <div className="font-medium text-gray-900">
+                                      {registeredUser.user?.name || registeredUser.name} {registeredUser.user?.lastName || registeredUser.lastName || ''}
+                                    </div>
+                                    <div className="text-sm text-gray-500">
+                                      {registeredUser.user?.email || registeredUser.email}
+                                    </div>
+                                    {(registeredUser.user?.dob || registeredUser.dob) && (
+                                      <div className="text-xs text-gray-400 mt-1">
+                                        DOB: {new Date(registeredUser.user?.dob || registeredUser.dob).toLocaleDateString()}
+                                      </div>
+                                    )}
+                                    <div className="text-sm text-gray-600 mt-1">
+                                      <span className="font-medium">Phone:</span> {registeredUser.phoneNumber}
+                                    </div>
+                                    {registeredUser.registeredAt && (
+                                      <div className="text-xs text-gray-400 mt-1">
+                                        Registered: {new Date(registeredUser.registeredAt).toLocaleDateString()}
+                                      </div>
+                                    )}
                                   </div>
-                                  <div className="text-sm text-gray-600 mt-1">
-                                    <span className="font-medium">Phone:</span> {registeredUser.phoneNumber}
-                                  </div>
-                                  {registeredUser.registeredAt && (
-                                    <div className="text-xs text-gray-400 mt-1">
-                                      Registered: {new Date(registeredUser.registeredAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                              
+                              {/* Display Photos and Videos */}
+                              {((registeredUser.photos && registeredUser.photos.length > 0) || (registeredUser.videos && registeredUser.videos.length > 0)) && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  {/* Display Photos */}
+                                  {(registeredUser.photos && registeredUser.photos.length > 0) && (
+                                    <div className="mb-3">
+                                      <div className="text-sm font-medium text-gray-700 mb-2">Uploaded Photos ({registeredUser.photos.length}):</div>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {registeredUser.photos.map((photo, photoIndex) => (
+                                          <div key={photoIndex} className="relative">
+                                            <img
+                                              src={photo}
+                                              alt={`Submission ${photoIndex + 1}`}
+                                              className="w-full h-24 object-cover rounded border cursor-pointer hover:opacity-80"
+                                              onClick={() => window.open(photo, '_blank')}
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Display Videos */}
+                                  {(registeredUser.videos && registeredUser.videos.length > 0) && (
+                                    <div>
+                                      <div className="text-sm font-medium text-gray-700 mb-2">Uploaded Videos ({registeredUser.videos.length}):</div>
+                                      <div className="space-y-3">
+                                        {registeredUser.videos.map((video, videoIndex) => (
+                                          <div key={videoIndex} className="border rounded overflow-hidden bg-black">
+                                            <video
+                                              src={video}
+                                              controls
+                                              preload="metadata"
+                                              className="w-full h-64 object-contain"
+                                              style={{ maxHeight: '400px' }}
+                                            >
+                                              Your browser does not support the video tag.
+                                            </video>
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
-                              </div>
+                              )}
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
                   )}
-                  <button
-                    onClick={() => handleDelete(ticket._id)}
-                    className="w-full px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                  >
-                    Delete
-                  </button>
                 </div>
+                <button
+                  onClick={() => handleDelete(ticket._id)}
+                  className="w-full mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                >
+                  Delete
+                </button>
               </div>
             ))}
           </div>

@@ -60,25 +60,30 @@ router.get('/:id/registrations', auth, authorize('casting', 'admin'), async (req
       return res.status(403).json({ message: 'Not authorized to view registrations' });
     }
 
-    // Get registrations with phone numbers
+    // Get registrations with phone numbers, photos, videos, and user profile details
     const registrations = await Registration.find({ ticket: req.params.id })
-      .populate('user', 'name email role')
+      .populate('user', 'name lastName dob age address phoneNumber email role profilePhoto')
       .sort({ createdAt: -1 });
 
-    res.json({
-      ticket: {
-        id: ticket._id,
-        title: ticket.title,
-        registeredCount: registrations.length
-      },
-      registeredUsers: registrations.map(reg => ({
+    res.json(registrations.map(reg => ({
+      _id: reg._id,
+      user: {
         _id: reg.user._id,
         name: reg.user.name,
+        lastName: reg.user.lastName,
+        dob: reg.user.dob,
+        age: reg.user.age,
+        address: reg.user.address,
+        phoneNumber: reg.user.phoneNumber,
         email: reg.user.email,
-        phoneNumber: reg.phoneNumber,
-        registeredAt: reg.createdAt
-      }))
-    });
+        role: reg.user.role,
+        profilePhoto: reg.user.profilePhoto || null
+      },
+      phoneNumber: reg.phoneNumber,
+      photos: reg.photos || [],
+      videos: reg.videos || [],
+      registeredAt: reg.registeredAt || reg.createdAt
+    })));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -87,10 +92,14 @@ router.get('/:id/registrations', auth, authorize('casting', 'admin'), async (req
 // Create casting ticket (casting role only)
 router.post('/', auth, authorize('casting', 'admin'), async (req, res) => {
   try {
-    const { title, description, category, location, date, image } = req.body;
+    const { title, description, category, location, date, image, images } = req.body;
 
     if (!title || !description || !category || !location || !date) {
       return res.status(400).json({ message: 'Please provide all fields' });
+    }
+
+    if (!['cinema', 'serial'].includes(category)) {
+      return res.status(400).json({ message: 'Category must be either "cinema" or "serial"' });
     }
 
     const ticket = new CastingTicket({
@@ -100,6 +109,7 @@ router.post('/', auth, authorize('casting', 'admin'), async (req, res) => {
       location,
       date,
       image: image || null,
+      images: images || [],
       status: 'pending', // Always pending when created by casting director
       createdBy: req.user.id
     });
@@ -116,7 +126,7 @@ router.post('/', auth, authorize('casting', 'admin'), async (req, res) => {
 // Register for casting ticket (user role only)
 router.post('/:id/register', auth, authorize('user'), async (req, res) => {
   try {
-    const { phoneNumber } = req.body;
+    const { phoneNumber, photos, videos } = req.body;
 
     if (!phoneNumber) {
       return res.status(400).json({ message: 'Phone number is required' });
@@ -141,11 +151,13 @@ router.post('/:id/register', auth, authorize('user'), async (req, res) => {
       return res.status(400).json({ message: 'Already registered' });
     }
 
-    // Create registration with phone number
+    // Create registration with phone number, photos, and videos
     const registration = new Registration({
       ticket: req.params.id,
       user: req.user.id,
-      phoneNumber
+      phoneNumber,
+      photos: photos || [],
+      videos: videos || []
     });
 
     await registration.save();

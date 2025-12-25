@@ -12,6 +12,7 @@ const castingTicketSchema = new mongoose.Schema({
   },
   category: {
     type: String,
+    enum: ['cinema', 'serial'],
     required: true
   },
   location: {
@@ -26,6 +27,10 @@ const castingTicketSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  images: [{
+    type: String, // Base64 encoded images or URLs
+    default: []
+  }],
   status: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],

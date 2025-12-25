@@ -9,6 +9,9 @@ const LandingPage = () => {
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState(null);
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [uploading, setUploading] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -38,6 +41,56 @@ const LandingPage = () => {
     setShowPhoneModal(true);
   };
 
+  const handlePhotoChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length + photos.length > 5) {
+      alert('Maximum 5 photos allowed');
+      return;
+    }
+
+    files.forEach(file => {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        alert(`Photo ${file.name} is too large. Maximum size is 5MB.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotos(prev => [...prev, reader.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleVideoChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length + videos.length > 3) {
+      alert('Maximum 3 videos allowed');
+      return;
+    }
+
+    files.forEach(file => {
+      if (file.size > 50 * 1024 * 1024) { // 50MB limit
+        alert(`Video ${file.name} is too large. Maximum size is 50MB.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVideos(prev => [...prev, reader.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto = (index) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeVideo = (index) => {
+    setVideos(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handlePhoneSubmit = async (e) => {
     e.preventDefault();
     if (!phoneNumber.trim()) {
@@ -45,17 +98,24 @@ const LandingPage = () => {
       return;
     }
 
+    setUploading(true);
     try {
       await axios.post(`http://localhost:5001/api/casting/${selectedTicketId}/register`, {
-        phoneNumber: phoneNumber.trim()
+        phoneNumber: phoneNumber.trim(),
+        photos: photos,
+        videos: videos
       });
       alert('Registered successfully!');
       setShowPhoneModal(false);
       setPhoneNumber('');
+      setPhotos([]);
+      setVideos([]);
       setSelectedTicketId(null);
       fetchTickets();
     } catch (error) {
       alert(error.response?.data?.message || 'Registration failed');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -86,7 +146,28 @@ const LandingPage = () => {
               <div className="flex gap-4">
                 {user ? (
                   <>
-                    <span className="text-gray-700">Welcome, {user.name}</span>
+                    <div className="flex items-center gap-3">
+                      {user.profilePhoto ? (
+                        <img
+                          src={user.profilePhoto}
+                          alt={`${user.name}'s profile`}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-blue-500"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center border-2 border-blue-500">
+                          <span className="text-gray-600 text-xs font-semibold">
+                            {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-gray-700">Welcome, {user.name} {user.lastName || ''}</span>
+                    </div>
+                    <button
+                      onClick={() => navigate('/profile')}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
+                    >
+                      Profile
+                    </button>
                     {user.role === 'casting' && (
                       <button
                         onClick={() => navigate('/casting')}
@@ -144,7 +225,7 @@ const LandingPage = () => {
               Explore amazing casting opportunities and take your career to the next level
             </p>
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 drop-shadow-lg">
-              Available Casting Tickets
+              Available Auditions
             </h2>
           </div>
 
@@ -155,7 +236,7 @@ const LandingPage = () => {
             </div>
           ) : tickets.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-xl text-white drop-shadow-md">No casting tickets available</div>
+              <div className="text-xl text-white drop-shadow-md">No auditions available</div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[60vh] overflow-y-auto">
@@ -224,10 +305,10 @@ const LandingPage = () => {
         </div>
       </div>
 
-      {/* Phone Number Modal */}
+      {/* Registration Modal */}
       {showPhoneModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-semibold mb-4">Register for Audition</h2>
             <form onSubmit={handlePhoneSubmit}>
               <div className="mb-4">
@@ -243,12 +324,83 @@ const LandingPage = () => {
                   onChange={(e) => setPhoneNumber(e.target.value)}
                 />
               </div>
+
+              {/* Photos Upload */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photos (Max 5, 5MB each)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handlePhotoChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {photos.length > 0 && (
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={index} className="relative">
+                        <img
+                          src={photo}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-24 object-cover rounded border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(index)}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Videos Upload */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Videos (Max 3, 50MB each)
+                </label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  multiple
+                  onChange={handleVideoChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {videos.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    {videos.map((video, index) => (
+                      <div key={index} className="relative border rounded p-2">
+                        <video
+                          src={video}
+                          controls
+                          className="w-full h-32 object-contain rounded"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeVideo(index)}
+                          className="absolute top-3 right-3 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setShowPhoneModal(false);
                     setPhoneNumber('');
+                    setPhotos([]);
+                    setVideos([]);
                     setSelectedTicketId(null);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
@@ -257,9 +409,10 @@ const LandingPage = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  disabled={uploading}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                 >
-                  Register
+                  {uploading ? 'Registering...' : 'Register'}
                 </button>
               </div>
             </form>

@@ -8,10 +8,10 @@ const router = express.Router();
 // Register
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, lastName, dob, age, address, phoneNumber, email, password, role, profilePhoto } = req.body;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Please provide all fields' });
+      return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
     if (!['user', 'casting'].includes(role)) {
@@ -23,7 +23,18 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    const user = new User({ name, email, password, role });
+    const user = new User({ 
+      name, 
+      lastName: lastName || '',
+      dob: dob || null,
+      age: age || null,
+      address: address || '',
+      phoneNumber: phoneNumber || '',
+      email, 
+      password, 
+      role,
+      profilePhoto: profilePhoto || null
+    });
     await user.save();
 
     const token = jwt.sign(
@@ -37,8 +48,14 @@ router.post('/register', async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
+        lastName: user.lastName,
+        dob: user.dob,
+        age: user.age,
+        address: user.address,
+        phoneNumber: user.phoneNumber,
         email: user.email,
-        role: user.role
+        role: user.role,
+        profilePhoto: user.profilePhoto
       }
     });
   } catch (error) {
@@ -76,8 +93,14 @@ router.post('/login', async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
+        lastName: user.lastName,
+        dob: user.dob,
+        age: user.age,
+        address: user.address,
+        phoneNumber: user.phoneNumber,
         email: user.email,
-        role: user.role
+        role: user.role,
+        profilePhoto: user.profilePhoto
       }
     });
   } catch (error) {
@@ -96,4 +119,5 @@ router.get('/me', auth, async (req, res) => {
 });
 
 module.exports = router;
+
 

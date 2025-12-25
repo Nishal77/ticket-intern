@@ -7,6 +7,29 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  lastName: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  dob: {
+    type: Date,
+    default: null
+  },
+  age: {
+    type: Number,
+    default: null
+  },
+  address: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  phoneNumber: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   email: {
     type: String,
     required: true,
@@ -23,6 +46,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['user', 'casting', 'admin'],
     default: 'user'
+  },
+  profilePhoto: {
+    type: String, // Base64 encoded image or URL
+    default: null
   }
 }, {
   timestamps: true
@@ -39,4 +66,5 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 };
 
 module.exports = mongoose.model('User', userSchema);
+
 

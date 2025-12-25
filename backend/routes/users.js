@@ -27,26 +27,42 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Update user (admin only)
-router.put('/:id', auth, authorize('admin'), async (req, res) => {
+// Update user profile (user can update own profile, admin can update any)
+router.put('/:id', auth, async (req, res) => {
   try {
-    const { role } = req.body;
+    const { name, lastName, dob, age, address, phoneNumber, profilePhoto, role } = req.body;
     const user = await User.findById(req.params.id);
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (user._id.toString() === req.user.id) {
-      return res.status(400).json({ message: 'Cannot modify your own role' });
+    // Users can only update their own profile (except role)
+    // Admins can update any user's profile including role
+    if (user._id.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to update this profile' });
     }
 
-    if (role && ['user', 'casting', 'admin'].includes(role)) {
+    // Only admin can change roles
+    if (role && req.user.role === 'admin' && ['user', 'casting', 'admin'].includes(role)) {
+      if (user._id.toString() === req.user.id) {
+        return res.status(400).json({ message: 'Cannot modify your own role' });
+      }
       user.role = role;
-      await user.save();
     }
 
-    res.json({ message: 'User updated successfully', user });
+    // Update profile fields
+    if (name !== undefined) user.name = name;
+    if (lastName !== undefined) user.lastName = lastName;
+    if (dob !== undefined) user.dob = dob || null;
+    if (age !== undefined) user.age = age || null;
+    if (address !== undefined) user.address = address || '';
+    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber || '';
+    if (profilePhoto !== undefined) user.profilePhoto = profilePhoto || null;
+
+    await user.save();
+
+    res.json({ message: 'Profile updated successfully', user });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
